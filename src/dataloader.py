@@ -147,8 +147,8 @@ def get_neojaundice_dataloader(dataset_path):
 class ComparisonDataset(Dataset):
     def __init__(self, images_1, images_2, labels, split, mean_=None, std_=None):
         print(f"Loading {split} dataset with {len(labels)} samples.")
-        self.images_1 = [self.load_image(img) for img in images_1[:20]]
-        self.images_2 = [self.load_image(img) for img in images_2[:20]]
+        self.images_1 = [self.load_image(img) for img in images_1]
+        self.images_2 = [self.load_image(img) for img in images_2]
         print("Completed loading images.")
 
         self.mean_ = (
@@ -162,7 +162,7 @@ class ComparisonDataset(Dataset):
             else std_
         )
 
-        self.labels = labels[:20]
+        self.labels = labels
         self.split = split
         transforms_ = [
             transforms.ToTensor(),

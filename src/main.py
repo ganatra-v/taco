@@ -15,7 +15,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--anemia_threshold",
-    type=int,
+    type=float,
     default=11.5,
     help="Threshold for anemia in g/dL. Default is 11.5 g/dL.",
 )
