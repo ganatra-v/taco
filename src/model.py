@@ -1,4 +1,5 @@
 from dataloader import load_image
+import logging
 import torch
 import torch.nn as nn
 from torchvision.models import (
@@ -86,13 +87,9 @@ class taco(nn.Module):
                 param.requires_grad = False
 
     def forward(self, x1, x2):
-        print(x1.shape, x2.shape)
         x1 = self.model(x1)
-        print(x1.shape)
         x2 = self.model(x2)
-        print(x2.shape)
         x = torch.cat((x1, x2), dim=1)
-        print(x.shape)
         return self.fc(x)
 
     def get_total_params(self):
@@ -134,11 +131,11 @@ class taco(nn.Module):
 
                 running_loss += loss.item()
 
-            print(f"epoch {epoch}, loss: {running_loss / (i+1)}")
+            logging.info(f"epoch {epoch}, loss: {running_loss / (i+1)}")
             losses.append(running_loss / (i + 1))
             acc = self.eval_comparison(trainloader)
             accs.append(acc)
-        print("Finished Training")
+        logging.info("Finished Training")
         return losses, accs
 
     def eval_comparison(self, dataloader):
@@ -165,7 +162,7 @@ class taco(nn.Module):
                 total += labels.numel()
 
         accuracy = correct / total if total > 0 else 0
-        print(f"eval acc: {accuracy:.4f}")
+        logging.info(f"eval acc: {accuracy:.4f}")
         return accuracy
 
     def eval_model(self, valdataloader):
@@ -202,7 +199,6 @@ class taco(nn.Module):
             with torch.no_grad():
                 for data in valdataloader:
                     inputs1, _, labels = data
-                    print(f"inputs1 shape: {inputs1.size()}")
                     inputs2 = img.repeat(inputs1.size(0), 1, 1, 1)
                     inputs1, inputs2, labels = (
                         (
@@ -220,6 +216,8 @@ class taco(nn.Module):
                     correct += (preds == labels).sum().item()
                     total += labels.numel()
             accuracy = correct / total if total > 0 else 0
-            print(f"ref_images: {reference_image_names[idx]}, eval acc: {accuracy:.4f}")
+            logging.info(
+                f"ref_images: {reference_image_names[idx]}, eval acc: {accuracy:.4f}"
+            )
             ref_vs_acc[reference_image_names[idx]] = accuracy
         return ref_vs_acc

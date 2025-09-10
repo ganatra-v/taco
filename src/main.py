@@ -99,12 +99,18 @@ if __name__ == "__main__":
     model = model.cuda() if torch.cuda.is_available() else model
     trainlosses, trainaccs = model.train_model(train_loader)
 
+    with open(os.path.join(args.outdir, "train_losses.txt"), "w") as f:
+        for loss in trainlosses:
+            f.write(f"{loss}\n")
+    with open(os.path.join(args.outdir, "train_accs.txt"), "w") as f:
+        for acc in trainaccs:
+            f.write(f"{acc}\n")
+
     # save the model
     torch.save(model.state_dict(), os.path.join(args.outdir, "model.pth"))
     logging.info("Model saved to %s", os.path.join(args.outdir, "model.pth"))
 
     val_acc = model.eval_model(val_loader)
     logging.info(f"Validation accuracy: {val_acc}")
-    print(f"Validation accuracy: {val_acc}")
     with open(os.path.join(args.outdir, "val_acc.json"), "w") as f:
         json.dump(val_acc, f)

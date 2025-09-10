@@ -46,8 +46,8 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         )
         all_images.extend(italy_images)
         all_labels.extend(italy_labels)
-    print(f"Total images: {len(all_images)}")
-    print(
+    logging.info(f"Total images: {len(all_images)}")
+    logging.info(
         f"Anemic = {sum([int(f<=args.anemia_threshold) for f in all_labels])}, Non-anemic = {len(all_labels) - sum([int(f<=args.anemia_threshold) for f in all_labels])}"
     )
 
@@ -157,10 +157,10 @@ def get_neojaundice_dataloader(dataset_path):
 
 class ComparisonDataset(Dataset):
     def __init__(self, images_1, images_2, labels, split, mean_=None, std_=None):
-        print(f"Loading {split} dataset with {len(labels)} samples.")
-        self.images_1 = [load_image(img) for img in images_1[:20]]
-        self.images_2 = [load_image(img) for img in images_2[:20]]
-        print("Completed loading images.")
+        logging.info(f"Loading {split} dataset with {len(labels)} samples.")
+        self.images_1 = [load_image(img) for img in images_1]
+        self.images_2 = [load_image(img) for img in images_2]
+        logging.info("Completed loading images.")
 
         self.mean_ = (
             np.mean([np.mean(img, axis=(0, 1, 2)) for img in self.images_1])
@@ -173,7 +173,7 @@ class ComparisonDataset(Dataset):
             else std_
         )
 
-        self.labels = labels[:20]
+        self.labels = labels
         self.split = split
         transforms_ = [
             transforms.ToTensor(),
