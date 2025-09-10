@@ -10,7 +10,7 @@ import torch
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--dataset", choices=["eyes-defy-anemia", "neojaundice"])
+parser.add_argument("--dataset", required=True, help="Name of the dataset to use.")
 parser.add_argument(
     "--dataset_path", required=True, help="Path to the dataset you want to use."
 )
