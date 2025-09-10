@@ -1,3 +1,4 @@
+from dataloader import load_image
 import torch
 import torch.nn as nn
 from torchvision.models import (
@@ -16,6 +17,7 @@ from torchvision.models import (
     ViT_B_16_Weights,
     ViT_B_32_Weights,
 )
+from torchvision import transforms
 
 
 class taco(nn.Module):
@@ -133,7 +135,7 @@ class taco(nn.Module):
                 running_loss += loss.item()
 
             print(f"epoch {epoch}, loss: {running_loss / (i+1)}")
-            losses.append(running_loss / (i+1))
+            losses.append(running_loss / (i + 1))
             acc = self.eval_comparison(trainloader)
             accs.append(acc)
         print("Finished Training")
@@ -165,3 +167,59 @@ class taco(nn.Module):
         accuracy = correct / total if total > 0 else 0
         print(f"eval acc: {accuracy:.4f}")
         return accuracy
+
+    def eval_model(self, valdataloader):
+        self.model.eval()
+        reference_image_names = []
+        reference_images = []
+        with open(f"{self.args.outdir}/reference_images.txt", "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                img_path = line.strip()
+                img = load_image(img_path)
+                reference_images.append(img)
+                reference_image_names.append(img_path)
+
+        val_transforms = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=valdataloader.dataset.mean_, std=valdataloader.dataset.std_
+                ),
+            ]
+        )
+
+        ref_vs_acc = {}
+
+        for idx, img in enumerate(reference_images):
+            img = val_transforms(img)
+            img = img.unsqueeze(0)
+            img = img.cuda() if torch.cuda.is_available() else img
+
+            correct = 0
+            total = 0
+
+            with torch.no_grad():
+                for data in valdataloader:
+                    inputs1, _, labels = data
+                    print(f"inputs1 shape: {inputs1.size()}")
+                    inputs2 = img.repeat(inputs1.size(0), 1, 1, 1)
+                    inputs1, inputs2, labels = (
+                        (
+                            inputs1.cuda(),
+                            inputs2.cuda(),
+                            labels.float().unsqueeze(1).cuda(),
+                        )
+                        if torch.cuda.is_available()
+                        else (inputs1, inputs2, labels.float().unsqueeze(1))
+                    )
+
+                    outputs = self.forward(inputs1, inputs2)
+                    outputs = torch.sigmoid(outputs)
+                    preds = (outputs > 0.5).float()
+                    correct += (preds == labels).sum().item()
+                    total += labels.numel()
+            accuracy = correct / total if total > 0 else 0
+            print(f"ref_images: {reference_image_names[idx]}, eval acc: {accuracy:.4f}")
+            ref_vs_acc[reference_image_names[idx]] = accuracy
+        return ref_vs_acc

@@ -1,5 +1,6 @@
 import argparse
 from dataloader import load_dataset
+import json
 import logging
 from model import taco
 import numpy as np
@@ -101,3 +102,9 @@ if __name__ == "__main__":
     # save the model
     torch.save(model.state_dict(), os.path.join(args.outdir, "model.pth"))
     logging.info("Model saved to %s", os.path.join(args.outdir, "model.pth"))
+
+    val_acc = model.eval_model(val_loader)
+    logging.info(f"Validation accuracy: {val_acc}")
+    print(f"Validation accuracy: {val_acc}")
+    with open(os.path.join(args.outdir, "val_acc.json"), "w") as f:
+        json.dump(val_acc, f)
