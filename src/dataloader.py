@@ -20,14 +20,14 @@ def load_dataset(args):
         "eyes-defy-anemia-italy",
     ]:
         subset = dataset.split("-")[-1] if dataset != "eyes-defy-anemia" else None
-        trainloader, valloader = get_eyes_defy_anemia_dataloader(
+        trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images = get_eyes_defy_anemia_dataloader(
             dataset_path,
             args,
             subset=subset,
         )
     elif dataset == "neojaundice":
-        trainloader, valloader = get_neojaundice_dataloader(dataset_path)
-    return trainloader, valloader
+        trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images = get_neojaundice_dataloader(dataset_path)
+    return trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images
 
 
 def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
@@ -58,8 +58,8 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
     train_images, val_images, train_labels, val_labels = train_test_split(
         all_images,
         all_labels,
-        test_size=0.2,
-        random_state=42,
+        test_size=0.3,
+        random_state=args.seed,
         stratify=[int(label <= args.anemia_threshold) for label in all_labels],
     )
     reference_images = [
@@ -67,13 +67,13 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         for i in range(len(train_images))
         if train_labels[i] == args.anemia_threshold
     ]
+
     with open(os.path.join(args.outdir, "reference_images.txt"), "w") as f:
         for img in reference_images:
             f.write(f"{img}\n")
     with open(os.path.join(args.outdir, "val_data.txt"), "w") as f:
         for img, label in zip(val_images, val_labels):
             f.write(f"{img},{label}\n")
-    val_labels = [int(label <= args.anemia_threshold) for label in val_labels]
 
     images_1, images_2, comparison_labels = generate_comparisons(
         train_images, train_labels, n_comparisons_per_image=args.n_comparisons_per_image
@@ -81,29 +81,44 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
     comparison_data = pd.DataFrame(
         {"image_1": images_1, "image_2": images_2, "label": comparison_labels}
     )
+    logging.info(f"comparison labels generated: {comparison_data["label"].value_counts()}")
     comparison_data.to_csv(
         os.path.join(args.outdir, "train_comparisons.csv"), index=False
     )
 
+    train_labels = [int(label <= args.anemia_threshold) for label in train_labels]
+    val_labels = [int(label <= args.anemia_threshold) for label in val_labels]
+
+    # train_mean_, train_std = comparison_dataset.mean_, comparison_dataset.std_
+    train_mean_ =[0.485, 0.456, 0.406]
+    train_std_ = [0.229, 0.224, 0.225]
+
+    logging.info("loading comparison datasets")
     comparison_dataset = ComparisonDataset(
-        images_1, images_2, comparison_labels, split="train"
-    )
-    train_mean_, train_std = comparison_dataset.mean_, comparison_dataset.std_
-
-    val_dataset = ComparisonDataset(
-        val_images,
-        val_images,
-        val_labels,
-        split="val",
-        mean_=train_mean_,
-        std_=train_std,
+        images_1, images_2, comparison_labels, mean_ = train_mean_, std_ = train_std_ 
     )
 
+
+    logging.info(f"loading inference datasets for {len(reference_images)} ref images")    
+    inference_loaders_train = []
+    inference_loaders_val = []
+    for img in reference_images:
+        logging.info(f"ref image  - {img}")
+        inference_dataset = InferenceDataset(train_images, img, train_labels, train_mean_, train_std_)
+        trainloader = DataLoader(
+            inference_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
+        )
+        inference_loaders_train.append(trainloader)
+
+        inference_dataset = InferenceDataset(val_images, img, val_labels, train_mean_, train_std_)
+        valloader = DataLoader(inference_dataset, batch_size = 10, shuffle=False, num_workers=4)
+        inference_loaders_val.append(valloader)
+ 
     trainloader = DataLoader(
-        comparison_dataset, batch_size=32, shuffle=True, num_workers=4
+        comparison_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
     )
-    valloader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
-    return trainloader, valloader
+
+    return trainloader, inference_loaders_train, inference_loaders_val, reference_images, val_images
 
 
 def load_eyes_defy_anemia_country_data(country, dataset_path):
@@ -114,7 +129,7 @@ def load_eyes_defy_anemia_country_data(country, dataset_path):
 
     for row in tqdm(gt[["Number", "Hgb"]].iterrows()):
         img_dir = os.path.join(country_dir, str(int(row[1]["Number"])))
-        label = row[1]["Hgb"]
+        label = float(row[1]["Hgb"])
         imgs = os.listdir(img_dir)
         try:
             # check for only numerical image names
@@ -127,7 +142,6 @@ def load_eyes_defy_anemia_country_data(country, dataset_path):
             continue
 
     return images, labels
-
 
 def generate_comparisons(images, labels, n_comparisons_per_image):
     images_1 = []
@@ -144,7 +158,7 @@ def generate_comparisons(images, labels, n_comparisons_per_image):
             images_1.append(img)
             images_2.append(img2)
             # i.e. label is 1 if the first image has lower Hgb than the second image.
-            label = 1 if labels[images.index(img)] < labels[images.index(img2)] else 0
+            label = 1 if labels[images.index(img)] <= labels[images.index(img2)] else 0
             comparison_labels.append(label)
     return images_1, images_2, comparison_labels
 
@@ -154,40 +168,57 @@ def get_neojaundice_dataloader(dataset_path):
     # Implement similar to get_eyes_defy_anemia_dataloader
     pass
 
-
-class ComparisonDataset(Dataset):
-    def __init__(self, images_1, images_2, labels, split, mean_=None, std_=None):
-        logging.info(f"Loading {split} dataset with {len(labels)} samples.")
-        self.images_1 = [load_image(img) for img in images_1]
-        self.images_2 = [load_image(img) for img in images_2]
-        logging.info("Completed loading images.")
-
-        self.mean_ = (
-            np.mean([np.mean(img, axis=(0, 1, 2)) for img in self.images_1])
-            if mean_ is None
-            else mean_
-        )
-        self.std_ = (
-            np.mean([np.std(img, axis=(0, 1, 2)) for img in self.images_1])
-            if std_ is None
-            else std_
-        )
+class InferenceDataset(Dataset):
+    def __init__(self, images, ref_image, labels, mean_ = None, std_ = None):
+        logging.info(f"Loading dataset for inference using comparison")
+        self.images = [load_image(img) for img in tqdm(images)]
+        self.ref_image = load_image(ref_image)
+        logging.info("Completed loading images")
+        if mean_ is not None and std_ is not None:
+            self.mean_ = mean_
+            self.std_ = std_
 
         self.labels = labels
-        self.split = split
         transforms_ = [
             transforms.ToTensor(),
-            transforms.Normalize(mean=[self.mean_ / 255.0], std=[self.std_ / 255.0]),
+            transforms.Normalize(mean= self.mean_ , std=self.std_),
         ]
-        if split == "train":
-            transforms_.extend(
-                [
-                    transforms.RandomHorizontalFlip(),
-                    transforms.RandomVerticalFlip(),
-                    transforms.RandomRotation(20),
-                    transforms.GaussianBlur(3),
-                ]
-            )
+        self.transform = transforms.Compose(transforms_)
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        image_1 = self.images[idx]
+        image_2 = self.ref_image
+        label = self.labels[idx]
+
+        if self.transform:
+            image_1 = self.transform(image_1)
+            image_2 = self.transform(image_2)
+
+        return image_1, image_2, torch.tensor(label, dtype=torch.float32)
+
+class ComparisonDataset(Dataset):
+    def __init__(self, images_1, images_2, labels, mean_=None, std_=None):
+        logging.info(f"Loading dataset with {len(labels)} samples.")
+        self.images_1 = [load_image(img) for img in tqdm(images_1)]
+        self.images_2 = [load_image(img) for img in tqdm(images_2)]
+        logging.info("Completed loading images.")
+
+        if mean_ is not None and std_ is not None:
+            self.mean_ = mean_
+            self.std_ = std_
+
+        self.labels = labels
+        transforms_ = [
+            transforms.ToTensor(),
+            transforms.Normalize(mean= self.mean_ , std=self.std_),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(20),
+            transforms.GaussianBlur(3),
+        ]
         self.transform = transforms.Compose(transforms_)
 
     def __len__(self):
@@ -195,7 +226,7 @@ class ComparisonDataset(Dataset):
 
     def __getitem__(self, idx):
         image_1 = self.images_1[idx]
-        image_2 = self.images_2[idx] if self.split == "train" else self.images_1[idx]
+        image_2 = self.images_2[idx]
         label = self.labels[idx]
 
         if self.transform:
@@ -208,7 +239,7 @@ class ComparisonDataset(Dataset):
 def load_image(img_path):
     image = cv2.imread(img_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = cv2.resize(image, (0, 0), fx=0.1, fy=0.1)
+    image = cv2.resize(image, (256, 256))
     return image
 
 

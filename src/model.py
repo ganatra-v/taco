@@ -1,5 +1,9 @@
 from dataloader import load_image
 import logging
+import numpy as np
+import os
+import pandas as pd
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import torch
 import torch.nn as nn
 from torchvision.models import (
@@ -77,6 +81,12 @@ class taco(nn.Module):
             num_ftrs = self.model.heads.head.in_features
 
         self.model.fc = nn.Identity()
+        self.projector = nn.Sequential(
+            nn.Linear(num_ftrs, num_ftrs * 2),
+            nn.ReLU(),
+            nn.Linear(num_ftrs * 2, num_ftrs),
+            nn.ReLU()
+        )
         self.fc = nn.Linear(num_ftrs * 2, 1)
 
         if args.finetune == "all":
@@ -85,31 +95,41 @@ class taco(nn.Module):
         elif args.finetune == "linear":
             for param in self.model.parameters():
                 param.requires_grad = False
+        logging.info(f"#-params: {self.get_total_params()}")
+        logging.info(f"#-trainable-params: {self.get_trainable_params()}")
 
     def forward(self, x1, x2):
-        x1 = self.model(x1)
-        x2 = self.model(x2)
+        x1 = self.projector(self.model(x1))
+        x2 = self.projector(self.model(x2))
         x = torch.cat((x1, x2), dim=1)
         return self.fc(x)
 
     def get_total_params(self):
-        return sum([p.numel() for p in self.model.parameters()])
+        return sum([p.numel() for p in self.model.parameters()] + [p.numel() for p in self.projector.parameters()] + [p.numel() for p in self.fc.parameters()]) 
 
     def get_trainable_params(self):
-        return sum([p.numel() for p in self.model.parameters() if p.requires_grad])
+        return sum([p.numel() for p in self.model.parameters() if p.requires_grad] + [p.numel() for p in self.projector.parameters() if p.requires_grad] + [p.numel() for p in self.fc.parameters() if p.requires_grad])
 
-    def train_model(self, trainloader):
+    def train_model(self, trainloader, infer_trainloaders, reference_images, outdir, infer_val_loaders):
         self.model.train()
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.BCELoss()
         optimizer = torch.optim.Adam(
-            filter(lambda p: p.requires_grad, self.parameters()), lr=self.args.lr
+            filter(lambda p: p.requires_grad, self.parameters()), lr=self.args.lr, weight_decay = self.args.weight_decay
         )
+
+        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers = [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = 0.1, end_factor = 1.0, total_iters = 5 * len(trainloader)),
+            torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 2.5e-6, T_max = (self.args.epochs - 5) * len(trainloader))
+        ], milestones = [5 * len(trainloader)])
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 1e-6, T_max = self.args.epochs * len(trainloader))
 
         losses = []
         accs = []
+        best_f1 = -1
 
         for epoch in range(1, self.args.epochs + 1):
+            self.model.train()
             running_loss = 0.0
+            lrs = []
             for i, data in enumerate(trainloader, 0):
                 inputs1, inputs2, labels = data
                 inputs1, inputs2, labels = (
@@ -125,23 +145,42 @@ class taco(nn.Module):
                 optimizer.zero_grad()
 
                 outputs = self.forward(inputs1, inputs2)
+                outputs = torch.sigmoid(outputs)
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
 
-            logging.info(f"epoch {epoch}, loss: {running_loss / (i+1)}")
+                lrs = scheduler.get_last_lr()[0]
+
+                scheduler.step()
+            logging.info(f"epoch {epoch}, lrs={lrs}, loss: {running_loss / (i+1)}")
             losses.append(running_loss / (i + 1))
-            acc = self.eval_comparison(trainloader)
-            accs.append(acc)
+
+            if epoch % 1 == 0:
+                logging.info(f"comparison perf. (trainset)")
+                metrics = self.eval_model(trainloader)
+                accs.append(metrics["acc"])
+                for loader, img, val_loader in zip(infer_trainloaders, reference_images, infer_val_loaders):
+                    logging.info(f"classification perf. (trainset) - {img}")
+                    metrics = self.eval_model(loader)
+                    if metrics["f1"] >= best_f1:
+                        logging.info("saving best model..................")
+                        torch.save(self.state_dict(), os.path.join(outdir, "best_model.pth"))
+                        best_f1 = metrics["f1"]
+                    logging.info(f"classification perf. (valset) - {img}")
+                    metrics = self.eval_model(val_loader)
+
+
         logging.info("Finished Training")
         return losses, accs
 
-    def eval_comparison(self, dataloader):
+    def eval_model(self, dataloader, save = False, outfilename = None, val_image_names = None):
         self.model.eval()
-        correct = 0
-        total = 0
+        probs_ = []
+        preds_ = []
+        labels_ = []
         with torch.no_grad():
             for data in dataloader:
                 inputs1, inputs2, labels = data
@@ -154,70 +193,42 @@ class taco(nn.Module):
                     if torch.cuda.is_available()
                     else (inputs1, inputs2, labels.float().unsqueeze(1))
                 )
-
                 outputs = self.forward(inputs1, inputs2)
                 outputs = torch.sigmoid(outputs)
+                probs_.append(outputs.cpu().numpy())
                 preds = (outputs > 0.5).float()
-                correct += (preds == labels).sum().item()
-                total += labels.numel()
+                preds_.append(preds.cpu().numpy())
+                labels_.append(labels.cpu().numpy())
 
-        accuracy = correct / total if total > 0 else 0
-        logging.info(f"eval acc: {accuracy:.4f}")
-        return accuracy
+        probs_ = np.vstack(probs_).reshape(-1)
+        preds_ = np.vstack(preds_).reshape(-1)
+        labels_ = np.vstack(labels_).reshape(-1)
 
-    def eval_model(self, valdataloader):
-        self.model.eval()
-        reference_image_names = []
-        reference_images = []
-        with open(f"{self.args.outdir}/reference_images.txt", "r") as f:
-            lines = f.readlines()
-            for line in lines:
-                img_path = line.strip()
-                img = load_image(img_path)
-                reference_images.append(img)
-                reference_image_names.append(img_path)
+        if save and outfilename is not None:
+            df = pd.DataFrame({
+                "proba": probs_,
+                "label": labels_,
+                "image_names": val_image_names
+                })
+            df.to_csv(outfilename, index = False)
 
-        val_transforms = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=valdataloader.dataset.mean_, std=valdataloader.dataset.std_
-                ),
-            ]
-        )
+        metrics = self.eval_metrics(preds_, labels_)
+        return metrics
 
-        ref_vs_acc = {}
+    def eval_metrics(self, preds, labels):
+        acc = accuracy_score(labels, preds)
+        precision = precision_score(labels, preds)
+        recall = recall_score(labels, preds)
+        f1 = f1_score(labels, preds)
 
-        for idx, img in enumerate(reference_images):
-            img = val_transforms(img)
-            img = img.unsqueeze(0)
-            img = img.cuda() if torch.cuda.is_available() else img
-
-            correct = 0
-            total = 0
-
-            with torch.no_grad():
-                for data in valdataloader:
-                    inputs1, _, labels = data
-                    inputs2 = img.repeat(inputs1.size(0), 1, 1, 1)
-                    inputs1, inputs2, labels = (
-                        (
-                            inputs1.cuda(),
-                            inputs2.cuda(),
-                            labels.float().unsqueeze(1).cuda(),
-                        )
-                        if torch.cuda.is_available()
-                        else (inputs1, inputs2, labels.float().unsqueeze(1))
-                    )
-
-                    outputs = self.forward(inputs1, inputs2)
-                    outputs = torch.sigmoid(outputs)
-                    preds = (outputs > 0.5).float()
-                    correct += (preds == labels).sum().item()
-                    total += labels.numel()
-            accuracy = correct / total if total > 0 else 0
-            logging.info(
-                f"ref_images: {reference_image_names[idx]}, eval acc: {accuracy:.4f}"
-            )
-            ref_vs_acc[reference_image_names[idx]] = accuracy
-        return ref_vs_acc
+        sens = recall
+        spec = recall_score(labels, preds, pos_label = 0)
+        logging.info(f"Acc: {acc}, Prec: {precision}, Recall: {recall}, F1: {f1}, Sens: {sens}, Spec: {spec}")
+        return {
+            "acc": acc,
+            "prec" : precision,
+            "rec" : recall,
+            "f1" : f1,
+            "sens" : sens,
+            "spec" : spec
+        }

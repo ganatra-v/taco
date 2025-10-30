@@ -60,6 +60,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    '--weight_decay',
+    type=float,
+    default=0.001,
+    help="L2 regularization"
+)
+
+parser.add_argument(
     "--lr", type=float, default=1e-4, help="Learning rate. Default is 1e-4."
 )
 
@@ -77,15 +84,19 @@ def setup_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def configure_output_directory(outdir):
-    out_dir = os.path.join("outputs", outdir)
+def configure_output_directory(outdir, args):
+    train_details = f"{args.dataset}_{args.n_comparisons_per_image}_comparisons_{args.anemia_threshold}_hb_{args.arch}_batchsize_{args.batch_size}_{args.epochs}_epochs_lr_{args.lr}_seed_{args.seed}"
+    if args.pretrained:
+        train_details += "_pretrained"
+    train_details += f"_finetune_{args.finetune}" 
+    out_dir = os.path.join(outdir, train_details)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    args.outdir = configure_output_directory(args.outdir)
+    args.outdir = configure_output_directory(args.outdir, args)
 
     print(vars(args))
     logging.basicConfig(
@@ -94,10 +105,10 @@ if __name__ == "__main__":
 
     setup_seed(args.seed)
 
-    train_loader, val_loader = load_dataset(args)
+    train_loader, infer_trainloaders, infer_val_loaders, reference_images, val_images = load_dataset(args)
     model = taco(args)
     model = model.cuda() if torch.cuda.is_available() else model
-    trainlosses, trainaccs = model.train_model(train_loader)
+    trainlosses, trainaccs = model.train_model(train_loader, infer_trainloaders, reference_images, args.outdir, infer_val_loaders)
 
     with open(os.path.join(args.outdir, "train_losses.txt"), "w") as f:
         for loss in trainlosses:
@@ -107,10 +118,16 @@ if __name__ == "__main__":
             f.write(f"{acc}\n")
 
     # save the model
-    torch.save(model.state_dict(), os.path.join(args.outdir, "model.pth"))
-    logging.info("Model saved to %s", os.path.join(args.outdir, "model.pth"))
+    torch.save(model.state_dict(), os.path.join(args.outdir, "final_model.pth"))
+    logging.info("Model saved to %s", os.path.join(args.outdir, "final_model.pth"))
 
-    val_acc = model.eval_model(val_loader)
-    logging.info(f"Validation accuracy: {val_acc}")
-    with open(os.path.join(args.outdir, "val_acc.json"), "w") as f:
-        json.dump(val_acc, f)
+    model.load_state_dict(torch.load(os.path.join(args.outdir, "best_model.pth")))
+
+    metrics_ = {}
+    logging.info(f"validating model")
+    for infer_val_loader, img in zip(infer_val_loaders, reference_images):
+        logging.info(f"classification perf. (val set) - {img}")
+        outfilename = args.outdir + f"/preds_{os.path.basename(img)}.csv"
+        metrics_[img] = model.eval_model(infer_val_loader, save=True, outfilename = outfilename, val_image_names = val_images)
+    with open(os.path.join(args.outdir, "val_perf.json"), "w") as f:
+        json.dump(metrics_, f)
