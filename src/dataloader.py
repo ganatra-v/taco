@@ -69,7 +69,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
     ]
 
     all_images = [load_image(img) for img in tqdm(train_images)]
-    val_images = [load_image(img) for img in tqdm(val_images)]
+    val_images_ = [load_image(img) for img in tqdm(val_images)]
     all_images_idx = range(len(all_images))
 
     with open(os.path.join(args.outdir, "reference_images.txt"), "w") as f:
@@ -77,7 +77,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
             f.write(f"{img}\n")
     
     with open(os.path.join(args.outdir, "train_data.txt"), "w") as f:
-        for img, label in zip(train_images, val_labels):
+        for img, label in zip(train_images, train_labels):
             f.write(f"{img},{label}\n")
 
     with open(os.path.join(args.outdir, "val_data.txt"), "w") as f:
@@ -119,7 +119,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         )
         inference_loaders_train.append(trainloader)
 
-        inference_dataset = InferenceDataset(val_images, img, val_labels, train_mean_, train_std_)
+        inference_dataset = InferenceDataset(val_images_, img, val_labels, train_mean_, train_std_)
         valloader = DataLoader(inference_dataset, batch_size = 10, shuffle=False, num_workers=4)
         inference_loaders_val.append(valloader)
  
