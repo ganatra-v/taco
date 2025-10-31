@@ -68,15 +68,24 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         if train_labels[i] == args.anemia_threshold
     ]
 
+    all_images = [load_image(img) for img in tqdm(train_images)]
+    val_images = [load_image(img) for img in tqdm(val_images)]
+    all_images_idx = range(len(all_images))
+
     with open(os.path.join(args.outdir, "reference_images.txt"), "w") as f:
         for img in reference_images:
             f.write(f"{img}\n")
+    
+    with open(os.path.join(args.outdir, "train_data.txt"), "w") as f:
+        for img, label in zip(train_images, val_labels):
+            f.write(f"{img},{label}\n")
+
     with open(os.path.join(args.outdir, "val_data.txt"), "w") as f:
         for img, label in zip(val_images, val_labels):
             f.write(f"{img},{label}\n")
 
     images_1, images_2, comparison_labels = generate_comparisons(
-        train_images, train_labels, n_comparisons_per_image=args.n_comparisons_per_image
+        all_images_idx, train_labels, n_comparisons_per_image=args.n_comparisons_per_image
     )
     comparison_data = pd.DataFrame(
         {"image_1": images_1, "image_2": images_2, "label": comparison_labels}
@@ -95,7 +104,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
 
     logging.info("loading comparison datasets")
     comparison_dataset = ComparisonDataset(
-        images_1, images_2, comparison_labels, mean_ = train_mean_, std_ = train_std_ 
+        all_images, images_1, images_2, comparison_labels, mean_ = train_mean_, std_ = train_std_ 
     )
 
 
@@ -104,7 +113,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
     inference_loaders_val = []
     for img in reference_images:
         logging.info(f"ref image  - {img}")
-        inference_dataset = InferenceDataset(train_images, img, train_labels, train_mean_, train_std_)
+        inference_dataset = InferenceDataset(all_images, img, train_labels, train_mean_, train_std_)
         trainloader = DataLoader(
             inference_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
         )
@@ -171,7 +180,7 @@ def get_neojaundice_dataloader(dataset_path):
 class InferenceDataset(Dataset):
     def __init__(self, images, ref_image, labels, mean_ = None, std_ = None):
         logging.info(f"Loading dataset for inference using comparison")
-        self.images = [load_image(img) for img in tqdm(images)]
+        self.images = images
         self.ref_image = load_image(ref_image)
         logging.info("Completed loading images")
         if mean_ is not None and std_ is not None:
@@ -200,10 +209,11 @@ class InferenceDataset(Dataset):
         return image_1, image_2, torch.tensor(label, dtype=torch.float32)
 
 class ComparisonDataset(Dataset):
-    def __init__(self, images_1, images_2, labels, mean_=None, std_=None):
+    def __init__(self, all_images, images_1, images_2, labels, mean_=None, std_=None):
         logging.info(f"Loading dataset with {len(labels)} samples.")
-        self.images_1 = [load_image(img) for img in tqdm(images_1)]
-        self.images_2 = [load_image(img) for img in tqdm(images_2)]
+        self.all_images = all_images
+        self.images_1 = images_1
+        self.images_2 = images_2
         logging.info("Completed loading images.")
 
         if mean_ is not None and std_ is not None:
@@ -225,8 +235,8 @@ class ComparisonDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        image_1 = self.images_1[idx]
-        image_2 = self.images_2[idx]
+        image_1 = self.all_images[self.images_1[idx]]
+        image_2 = self.all_images[self.images_2[idx]]
         label = self.labels[idx]
 
         if self.transform:
