@@ -125,6 +125,7 @@ class taco(nn.Module):
         losses = []
         accs = []
         best_f1 = -1
+        best_acc_epoch = 0
 
         for epoch in range(1, self.args.epochs + 1):
             self.model.train()
@@ -165,10 +166,11 @@ class taco(nn.Module):
                 for loader, img, val_loader in zip(infer_trainloaders, reference_images, infer_val_loaders):
                     logging.info(f"classification perf. (trainset) - {img}")
                     metrics = self.eval_model(loader)
-                    if metrics["f1"] >= best_f1:
+                    if metrics["f1"] >= best_f1 and (epoch - best_acc_epoch) <= 3:
                         logging.info("saving best model..................")
                         torch.save(self.state_dict(), os.path.join(outdir, "best_model.pth"))
                         best_f1 = metrics["f1"]
+                        best_acc_epoch = epoch
                     logging.info(f"classification perf. (valset) - {img}")
                     metrics = self.eval_model(val_loader)
 
