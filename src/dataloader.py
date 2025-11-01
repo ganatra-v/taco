@@ -59,7 +59,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         all_images,
         all_labels,
         test_size=0.3,
-        random_state=args.seed,
+        random_state=42,
         stratify=[int(label <= args.anemia_threshold) for label in all_labels],
     )
     reference_images = [
@@ -227,7 +227,6 @@ class ComparisonDataset(Dataset):
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
             transforms.RandomRotation(20),
-            transforms.GaussianBlur(3),
         ]
         self.transform = transforms.Compose(transforms_)
 

@@ -117,8 +117,8 @@ class taco(nn.Module):
             filter(lambda p: p.requires_grad, self.parameters()), lr=self.args.lr, weight_decay = self.args.weight_decay
         )
 
-        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers = [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = 0.1, end_factor = 1.0, total_iters = 5 * len(trainloader)),
-            torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 2.5e-6, T_max = (self.args.epochs - 5) * len(trainloader))
+        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers = [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = 0.1, end_factor = 1.0, total_iters = 10 * len(trainloader)),
+            torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 2.5e-6, T_max = (self.args.epochs - 10) * len(trainloader))
         ], milestones = [5 * len(trainloader)])
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 1e-6, T_max = self.args.epochs * len(trainloader))
 
@@ -128,6 +128,8 @@ class taco(nn.Module):
         best_acc_epoch = 0
 
         for epoch in range(1, self.args.epochs + 1):
+            if (epoch - best_acc_epoch) > args.early_stop:
+                break
             self.model.train()
             running_loss = 0.0
             lrs = []

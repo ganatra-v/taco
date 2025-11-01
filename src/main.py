@@ -21,6 +21,11 @@ parser.add_argument(
     help="Threshold for anemia in g/dL. Default is 11.5 g/dL.",
 )
 
+parser.add_argument(
+    "--early_stop",
+    type=int,
+    default=3
+)
 
 parser.add_argument(
     "--n_comparisons_per_image",
