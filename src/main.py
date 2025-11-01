@@ -79,6 +79,14 @@ parser.add_argument(
     "--epochs", type=int, default=10, help="Number of epochs. Default is 10."
 )
 
+parser.add_argument(
+    "--fold", type=int, default=0, help="Fold for Cross-Validation"
+)
+
+parser.add_argument(
+    "--fold_path", type=str, required=True
+)
+
 
 def setup_seed(seed):
     np.random.seed(seed)

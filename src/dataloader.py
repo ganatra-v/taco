@@ -14,78 +14,46 @@ from tqdm import tqdm
 def load_dataset(args):
     dataset = args.dataset
     dataset_path = args.dataset_path
-    if dataset in [
-        "eyes-defy-anemia",
-        "eyes-defy-anemia-india",
-        "eyes-defy-anemia-italy",
-    ]:
-        subset = dataset.split("-")[-1] if dataset != "eyes-defy-anemia" else None
+    if dataset =="eyes-defy-anemia":
         trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images = get_eyes_defy_anemia_dataloader(
             dataset_path,
-            args,
-            subset=subset,
+            args
         )
     elif dataset == "neojaundice":
         trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images = get_neojaundice_dataloader(dataset_path)
     return trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images
 
 
-def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
-    all_images = []
-    all_labels = []
+def get_eyes_defy_anemia_dataloader(dataset_path, args):
+    train_file = os.path.join(args.fold_path, f"train_fold_{args.fold}.csv")
+    test_file = os.path.join(args.fold_path, f"test_fold_{args.fold}.csv")
 
-    if subset in [None, "india"]:
-        india_images, india_labels = load_eyes_defy_anemia_country_data(
-            "India", dataset_path
-        )
-        all_images.extend(india_images)
-        all_labels.extend(india_labels)
-    if subset in [None, "italy"]:
-        italy_images, italy_labels = load_eyes_defy_anemia_country_data(
-            "Italy", dataset_path
-        )
-        all_images.extend(italy_images)
-        all_labels.extend(italy_labels)
-    logging.info(f"Total images: {len(all_images)}")
-    logging.info(
-        f"Anemic = {sum([int(f<=args.anemia_threshold) for f in all_labels])}, Non-anemic = {len(all_labels) - sum([int(f<=args.anemia_threshold) for f in all_labels])}"
-    )
+    train_data = pd.read_csv(train_file)
+    test_data = pd.read_csv(test_file)
 
-    with open(os.path.join(args.outdir, "all_data.txt"), "w") as f:
-        for img, label in zip(all_images, all_labels):
-            f.write(f"{img},{label}\n")
+    logging.info(f"Trainset = {len(train_data)}, Testset = {len(test_data)}")
+    logging.info(f"Train = {train_data["label"].value_counts()}, Test = {test_data["label"].value_counts()}")
 
-    train_images, val_images, train_labels, val_labels = train_test_split(
-        all_images,
-        all_labels,
-        test_size=0.3,
-        random_state=42,
-        stratify=[int(label <= args.anemia_threshold) for label in all_labels],
-    )
+    train_images = train_data["images"].values
+    train_labels = train_data["label"].values
+    train_hgb = train_data["hgb"].values
+
+    test_images = test_data["images"].values
+    test_labels = test_data["label"].values
+    test_hgb = test_data["hgb"].values
+
     reference_images = [
         train_images[i]
         for i in range(len(train_images))
-        if train_labels[i] == args.anemia_threshold
+        if train_hgb[i] == args.anemia_threshold
     ]
 
-    all_images = [load_image(img) for img in tqdm(train_images)]
-    val_images_ = [load_image(img) for img in tqdm(val_images)]
-    all_images_idx = range(len(all_images))
-
-    with open(os.path.join(args.outdir, "reference_images.txt"), "w") as f:
-        for img in reference_images:
-            f.write(f"{img}\n")
-    
-    with open(os.path.join(args.outdir, "train_data.txt"), "w") as f:
-        for img, label in zip(train_images, train_labels):
-            f.write(f"{img},{label}\n")
-
-    with open(os.path.join(args.outdir, "val_data.txt"), "w") as f:
-        for img, label in zip(val_images, val_labels):
-            f.write(f"{img},{label}\n")
+    train_images = [load_image(img) for img in tqdm(train_images)]
+    test_images = [load_image(img) for img in tqdm(test_images)]
+    train_images_idx = range(len(train_images))
 
     images_1, images_2, comparison_labels = generate_comparisons(
-        all_images_idx, train_labels, n_comparisons_per_image=args.n_comparisons_per_image
+        train_images_idx, train_hgb, n_comparisons_per_image=args.n_comparisons_per_image
     )
     comparison_data = pd.DataFrame(
         {"image_1": images_1, "image_2": images_2, "label": comparison_labels}
@@ -95,16 +63,13 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         os.path.join(args.outdir, "train_comparisons.csv"), index=False
     )
 
-    train_labels = [int(label <= args.anemia_threshold) for label in train_labels]
-    val_labels = [int(label <= args.anemia_threshold) for label in val_labels]
-
     # train_mean_, train_std = comparison_dataset.mean_, comparison_dataset.std_
     train_mean_ =[0.485, 0.456, 0.406]
     train_std_ = [0.229, 0.224, 0.225]
 
     logging.info("loading comparison datasets")
     comparison_dataset = ComparisonDataset(
-        all_images, images_1, images_2, comparison_labels, mean_ = train_mean_, std_ = train_std_ 
+        train_images, images_1, images_2, comparison_labels, mean_ = train_mean_, std_ = train_std_ 
     )
 
 
@@ -113,13 +78,13 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
     inference_loaders_val = []
     for img in reference_images:
         logging.info(f"ref image  - {img}")
-        inference_dataset = InferenceDataset(all_images, img, train_labels, train_mean_, train_std_)
+        inference_dataset = InferenceDataset(train_images, img, train_labels, train_mean_, train_std_)
         trainloader = DataLoader(
             inference_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
         )
         inference_loaders_train.append(trainloader)
 
-        inference_dataset = InferenceDataset(val_images_, img, val_labels, train_mean_, train_std_)
+        inference_dataset = InferenceDataset(test_images, img, test_labels, train_mean_, train_std_)
         valloader = DataLoader(inference_dataset, batch_size = 10, shuffle=False, num_workers=4)
         inference_loaders_val.append(valloader)
  
@@ -127,7 +92,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args, subset=None):
         comparison_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
     )
 
-    return trainloader, inference_loaders_train, inference_loaders_val, reference_images, val_images
+    return trainloader, inference_loaders_train, inference_loaders_val, reference_images, test_images
 
 
 def load_eyes_defy_anemia_country_data(country, dataset_path):
@@ -246,6 +211,7 @@ class ComparisonDataset(Dataset):
 
 
 def load_image(img_path):
+    img_path = img_path.replace("/scratch/thirty3/vaibhavg/taco","../../")
     image = cv2.imread(img_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, (256, 256))
