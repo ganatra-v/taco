@@ -38,7 +38,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args):
     train_labels = train_data["label"].values
     train_hgb = train_data["hgb"].values
 
-    test_images = test_data["images"].values
+    test_images_names = test_data["images"].values
     test_labels = test_data["label"].values
     test_hgb = test_data["hgb"].values
 
@@ -49,7 +49,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args):
     ]
 
     train_images = [load_image(img) for img in tqdm(train_images)]
-    test_images = [load_image(img) for img in tqdm(test_images)]
+    test_images = [load_image(img) for img in tqdm(test_images_names)]
     train_images_idx = range(len(train_images))
 
     images_1, images_2, comparison_labels = generate_comparisons(
@@ -92,7 +92,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args):
         comparison_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
     )
 
-    return trainloader, inference_loaders_train, inference_loaders_val, reference_images, test_images
+    return trainloader, inference_loaders_train, inference_loaders_val, reference_images, test_images_names
 
 
 def load_eyes_defy_anemia_country_data(country, dataset_path):
@@ -211,7 +211,6 @@ class ComparisonDataset(Dataset):
 
 
 def load_image(img_path):
-    img_path = img_path.replace("/scratch/thirty3/vaibhavg/taco","../../")
     image = cv2.imread(img_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, (256, 256))

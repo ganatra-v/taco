@@ -98,7 +98,7 @@ def setup_seed(seed):
 
 
 def configure_output_directory(outdir, args):
-    train_details = f"{args.dataset}_{args.n_comparisons_per_image}_comparisons_{args.anemia_threshold}_hb_{args.arch}_batchsize_{args.batch_size}_{args.epochs}_epochs_lr_{args.lr}_seed_{args.seed}_weight_decay_{args.weight_decay}"
+    train_details = f"{args.dataset}_{args.n_comparisons_per_image}_comparisons_{args.anemia_threshold}_hb_{args.arch}_batchsize_{args.batch_size}_{args.epochs}_epochs_lr_{args.lr}_seed_{args.seed}_weight_decay_{args.weight_decay}_fold_{args.fold}"
     if args.pretrained:
         train_details += "_pretrained"
     train_details += f"_finetune_{args.finetune}" 
