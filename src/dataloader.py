@@ -20,7 +20,7 @@ def load_dataset(args):
             args
         )
     elif dataset == "neojaundice":
-        trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images = get_neojaundice_dataloader(dataset_path)
+        trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images = get_neojaundice_dataloader(args)
     return trainloader, infer_trainloaders, infer_val_loaders, reference_images, val_images
 
 
@@ -53,7 +53,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args):
     train_images_idx = range(len(train_images))
 
     images_1, images_2, comparison_labels = generate_comparisons(
-        train_images_idx, train_hgb, n_comparisons_per_image=args.n_comparisons_per_image
+        train_images_idx, train_hgb, args.n_comparisons_per_image, lambda x1, x2: x1<=x2
     )
     comparison_data = pd.DataFrame(
         {"image_1": images_1, "image_2": images_2, "label": comparison_labels}
@@ -92,7 +92,7 @@ def get_eyes_defy_anemia_dataloader(dataset_path, args):
         comparison_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
     )
 
-    return trainloader, inference_loaders_train, inference_loaders_val, reference_images, test_images_names
+    return trainloader, inference_loaders_val, inference_loaders_test, reference_images, test_images_names
 
 
 def load_eyes_defy_anemia_country_data(country, dataset_path):
@@ -117,7 +117,7 @@ def load_eyes_defy_anemia_country_data(country, dataset_path):
 
     return images, labels
 
-def generate_comparisons(images, labels, n_comparisons_per_image):
+def generate_comparisons(images, labels, n_comparisons_per_image, compare_fn):
     images_1 = []
     images_2 = []
     comparison_labels = []
@@ -132,15 +132,88 @@ def generate_comparisons(images, labels, n_comparisons_per_image):
             images_1.append(img)
             images_2.append(img2)
             # i.e. label is 1 if the first image has lower Hgb than the second image.
-            label = 1 if labels[images.index(img)] <= labels[images.index(img2)] else 0
+            # label is 1 if the first image has a higher TsB than second image
+            label = compare_fn(labels[images.index(img)], labels[images.index(img2)])
             comparison_labels.append(label)
     return images_1, images_2, comparison_labels
 
 
-def get_neojaundice_dataloader(dataset_path):
-    # Placeholder function for neojaundice dataset loading
-    # Implement similar to get_eyes_defy_anemia_dataloader
-    pass
+def get_neojaundice_dataloader(args):
+    train_file = os.path.join(args.fold_path, f"train_fold_{args.fold}.csv")
+    val_file = os.path.join(args.fold_path, f"val_fold_{args.fold}.csv")
+    test_file = os.path.join(args.fold_path, f"test_fold_{args.fold}.csv")
+
+    train_data = pd.read_csv(train_file)
+    val_data = pd.read_csv(val_file)
+    test_data = pd.read_csv(test_file)
+
+    logging.info(f"Trainset = {len(train_data)}, Valset = {len(val_data)}, Testset = {len(test_data)}")
+    logging.info(f"Train = {train_data["label"].value_counts()}, Valset = {val_data["label"].value_counts()} Test = {test_data["label"].value_counts()}")
+
+    train_images = train_data["images"].apply(lambda x: os.path.join(args.dataset_path, x)).values
+    train_labels = train_data["label"].values
+    train_tsb = train_data["tsb"].values
+
+    val_image_names = val_data["images"].apply(lambda x: os.path.join(args.dataset_path, x)).values
+    val_labels = val_data["label"].values
+    val_tsb = val_data["tsb"].values
+
+    test_images_names = test_data["images"].apply(lambda x: os.path.join(args.dataset_path, x)).values
+    test_labels = test_data["label"].values
+    test_tsb = test_data["tsb"].values
+
+    reference_images = [
+        train_images[i]
+        for i in range(len(train_images))
+        if train_tsb[i] == args.jaundice_threshold
+    ]
+
+    train_images = [load_image(img) for img in tqdm(train_images)]
+    val_images = [load_image(img) for img in tqdm(val_image_names)]
+    test_images = [load_image(img) for img in tqdm(test_images_names)]
+    train_images_idx = range(len(train_images))
+
+    images_1, images_2, comparison_labels = generate_comparisons(
+        train_images_idx, train_tsb, args.n_comparisons_per_image, lambda x1, x2: x1>=x2
+    )
+    comparison_data = pd.DataFrame(
+        {"image_1": images_1, "image_2": images_2, "label": comparison_labels}
+    )
+    logging.info(f"comparison labels generated: {comparison_data["label"].value_counts()}")
+    comparison_data.to_csv(
+        os.path.join(args.outdir, "train_comparisons.csv"), index=False
+    )
+
+    # train_mean_, train_std = comparison_dataset.mean_, comparison_dataset.std_
+    train_mean_ =[0.485, 0.456, 0.406]
+    train_std_ = [0.229, 0.224, 0.225]
+
+    logging.info("loading comparison datasets")
+    comparison_dataset = ComparisonDataset(
+        train_images, images_1, images_2, comparison_labels, mean_ = train_mean_, std_ = train_std_ 
+    )
+
+
+    logging.info(f"loading inference datasets for {len(reference_images)} ref images")    
+    inference_loaders_val = []
+    inference_loaders_test = []
+    for img in reference_images:
+        logging.info(f"ref image  - {img}")
+        inference_dataset = InferenceDataset(val_images, img, val_labels, train_mean_, train_std_)
+        valloader = DataLoader(
+            inference_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
+        )
+        inference_loaders_val.append(valloader)
+
+        inference_dataset = InferenceDataset(test_images, img, test_labels, train_mean_, train_std_)
+        testloader = DataLoader(inference_dataset, batch_size = 10, shuffle=False, num_workers=4)
+        inference_loaders_test.append(testloader)
+ 
+    trainloader = DataLoader(
+        comparison_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
+    )
+
+    return trainloader, inference_loaders_val, inference_loaders_test, reference_images, test_images_names
 
 class InferenceDataset(Dataset):
     def __init__(self, images, ref_image, labels, mean_ = None, std_ = None):

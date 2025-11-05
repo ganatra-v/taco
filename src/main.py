@@ -17,8 +17,15 @@ parser.add_argument(
 parser.add_argument(
     "--anemia_threshold",
     type=float,
-    default=11.5,
+    default=10.5,
     help="Threshold for anemia in g/dL. Default is 11.5 g/dL.",
+)
+
+parser.add_argument(
+    "--jaundice_threshold",
+    type=float,
+    default=12.9,
+    help="Threshold for jaundice"
 )
 
 parser.add_argument(
@@ -121,7 +128,7 @@ if __name__ == "__main__":
     train_loader, infer_trainloaders, infer_val_loaders, reference_images, val_images = load_dataset(args)
     model = taco(args)
     model = model.cuda() if torch.cuda.is_available() else model
-    trainlosses, trainaccs = model.train_model(train_loader, infer_trainloaders, reference_images, args.outdir, infer_val_loaders)
+    trainlosses, trainaccs = model.train_model(train_loader, infer_trainloaders, reference_images, args.outdir)
 
     with open(os.path.join(args.outdir, "train_losses.txt"), "w") as f:
         for loss in trainlosses:
@@ -139,8 +146,8 @@ if __name__ == "__main__":
     metrics_ = {}
     logging.info(f"validating model")
     for infer_val_loader, img in zip(infer_val_loaders, reference_images):
-        logging.info(f"classification perf. (val set) - {img}")
+        logging.info(f"classification perf. (test set) - {img}")
         outfilename = args.outdir + f"/preds_{os.path.basename(img)}.csv"
         metrics_[img] = model.eval_model(infer_val_loader, save=True, outfilename = outfilename, val_image_names = val_images)
-    with open(os.path.join(args.outdir, "val_perf.json"), "w") as f:
+    with open(os.path.join(args.outdir, "test_perf.json"), "w") as f:
         json.dump(metrics_, f)

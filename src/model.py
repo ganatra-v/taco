@@ -110,16 +110,16 @@ class taco(nn.Module):
     def get_trainable_params(self):
         return sum([p.numel() for p in self.model.parameters() if p.requires_grad] + [p.numel() for p in self.projector.parameters() if p.requires_grad] + [p.numel() for p in self.fc.parameters() if p.requires_grad])
 
-    def train_model(self, trainloader, infer_trainloaders, reference_images, outdir, infer_val_loaders):
+    def train_model(self, trainloader, infer_trainloaders, reference_images, outdir):
         self.model.train()
         criterion = nn.BCELoss()
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, self.parameters()), lr=self.args.lr, weight_decay = self.args.weight_decay
         )
 
-        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers = [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = 0.1, end_factor = 1.0, total_iters = 10 * len(trainloader)),
+        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers = [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = 0.1, end_factor = 1.0, total_iters = 5 * len(trainloader)),
             torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 2.5e-6, T_max = (self.args.epochs - 10) * len(trainloader))
-        ], milestones = [10 * len(trainloader)])
+        ], milestones = [5 * len(trainloader)])
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 1e-6, T_max = self.args.epochs * len(trainloader))
 
         losses = []
@@ -165,16 +165,17 @@ class taco(nn.Module):
                 logging.info(f"comparison perf. (trainset)")
                 metrics = self.eval_model(trainloader)
                 accs.append(metrics["acc"])
-                for loader, img, val_loader in zip(infer_trainloaders, reference_images, infer_val_loaders):
-                    logging.info(f"classification perf. (trainset) - {img}")
+                for loader, img in zip(infer_trainloaders, reference_images):
+                    logging.info(f"classification perf. (valset) - {img}")
                     metrics = self.eval_model(loader)
+                    logging.info(metrics)
                     if metrics["f1"] >= best_f1:
                         logging.info("saving best model..................")
                         torch.save(self.state_dict(), os.path.join(outdir, "best_model.pth"))
                         best_f1 = metrics["f1"]
                         best_acc_epoch = epoch
-                    logging.info(f"classification perf. (valset) - {img}")
-                    metrics = self.eval_model(val_loader)
+
+
 
 
         logging.info("Finished Training")
