@@ -153,7 +153,7 @@ def get_neojaundice_dataloader(args):
     ref_pids = train_data[train_data["tsb"] == args.jaundice_threshold]["pid"].unique()
     train_pids = train_data["pid"].unique()
 
-    train_pids = np.random.choice(train_pids, replace=False, size=int(args.data_prop * n_total))
+    train_pids = np.random.choice(train_pids, replace=False, size=int(args.data_prop * n_total), seed = args.seed)
     train_pids = train_pids[:-len(ref_pids)].tolist() + ref_pids.tolist()
     train_data = train_data[train_data["pid"].isin(train_pids)]
 
