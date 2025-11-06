@@ -118,7 +118,7 @@ class taco(nn.Module):
         )
 
         scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers = [torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = 0.1, end_factor = 1.0, total_iters = 5 * len(trainloader)),
-            torch.optim.lr_scheduler.MultiStepLR(optimizer, [self.args.epochs - 10], gamma = 0.1)
+            torch.optim.lr_scheduler.MultiStepLR(optimizer, [(self.args.epochs - 10) * len(trainloader)], gamma = 0.1)
         ], milestones = [5 * len(trainloader)])
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min = 1e-6, T_max = self.args.epochs * len(trainloader))
 
