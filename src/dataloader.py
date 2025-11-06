@@ -147,6 +147,16 @@ def get_neojaundice_dataloader(args):
     val_data = pd.read_csv(val_file)
     test_data = pd.read_csv(test_file)
 
+    n_total = len(train_data) + len(val_data) + len(test_data)
+
+    train_data["pid"] = train_data["images"].apply(lambda x: x.split("-")[0])
+    ref_pids = train_data[train_data["tsb"] == args.jaundice_threshold]["pid"].unique()
+    train_pids = train_data["pid"].unique()
+
+    train_pids = np.random.choice(train_pids, replace=False, size=int(args.data_prop * n_total))
+    train_pids = train_pids[:-len(ref_pids)].tolist() + ref_pids.tolist()
+    train_data = train_data[train_data["pid"].isin(train_pids)]
+
     logging.info(f"Trainset = {len(train_data)}, Valset = {len(val_data)}, Testset = {len(test_data)}")
     logging.info(f"Train = {train_data["label"].value_counts()}, Valset = {val_data["label"].value_counts()} Test = {test_data["label"].value_counts()}")
 

@@ -29,6 +29,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--data_prop",
+    type=float,
+    default=1,
+    help="Proportion of data used for training the model."
+)
+
+parser.add_argument(
     "--early_stop",
     type=int,
     default=3
@@ -105,7 +112,7 @@ def setup_seed(seed):
 
 
 def configure_output_directory(outdir, args):
-    train_details = f"{args.dataset}_{args.n_comparisons_per_image}_comparisons_{args.anemia_threshold}_hb_{args.arch}_batchsize_{args.batch_size}_{args.epochs}_epochs_lr_{args.lr}_seed_{args.seed}_weight_decay_{args.weight_decay}_fold_{args.fold}"
+    train_details = f"{args.dataset}_{args.n_comparisons_per_image}_comparisons_{args.anemia_threshold}_hb_{args.arch}_batchsize_{args.batch_size}_{args.epochs}_epochs_lr_{args.lr}_seed_{args.seed}_weight_decay_{args.weight_decay}_fold_{args.fold}_data_prop_{args.data_prop}"
     if args.pretrained:
         train_details += "_pretrained"
     train_details += f"_finetune_{args.finetune}" 
@@ -147,7 +154,7 @@ if __name__ == "__main__":
     logging.info(f"validating model")
     for infer_val_loader, img in zip(infer_val_loaders, reference_images):
         logging.info(f"classification perf. (test set) - {img}")
-        outfilename = args.outdir + f"/preds_{os.path.basename(img)}.csv"
+        outfilename = args.outdir + f"/test_preds_{os.path.basename(img)}.csv"
         metrics_[img] = model.eval_model(infer_val_loader, save=True, outfilename = outfilename, val_image_names = val_images)
     with open(os.path.join(args.outdir, "test_perf.json"), "w") as f:
         json.dump(metrics_, f)
