@@ -163,7 +163,7 @@ class taco(nn.Module):
         for epoch in range(1, self.args.epochs + 1):
             if (epoch - best_acc_epoch) > self.args.early_stop:
                 break
-            self.model.train()
+            self.train()
             running_loss = 0.0
             lrs = []
             for i, data in enumerate(trainloader):
@@ -197,7 +197,7 @@ class taco(nn.Module):
 
             if epoch % 1 == 0:
                 logging.info(f"comparison perf. (trainset)")
-                metrics = self.eval_model(trainloader)
+                metrics = self.eval_model(trainloader, scaler = scaler)
                 if "cls" in self.args.task:
                     accs.append(metrics["acc"])
                 elif "reg" in self.args.task:
@@ -222,7 +222,7 @@ class taco(nn.Module):
         return losses, accs
 
     def eval_model(self, dataloader, save = False, outfilename = None, val_image_names = None, scaler = None):
-        self.model.eval()
+        self.eval()
         probs_ = []
         labels_ = []
         with torch.no_grad():

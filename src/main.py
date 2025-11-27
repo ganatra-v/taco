@@ -81,7 +81,7 @@ if __name__ == "__main__":
     setup_seed(args.seed)
     logging.info(f"Arguments: {vars(args)}")
 
-    trainloader, inference_loaders_val, inference_loaders_test, ref_images, train_images, val_images, test_images = load_dataset(args)
+    trainloader, inference_loaders_val, inference_loaders_test, ref_images, train_images, val_images, test_images, scaler = load_dataset(args)
     model = taco(args)
     model = model.cuda() if torch.cuda.is_available() else model
 
@@ -90,7 +90,7 @@ if __name__ == "__main__":
         logging.info(f"Resumed model from checkpoint: {args.checkpoint}")
 
     if not args.eval_only:
-        trainlosses, trainaccs = model.train_model(trainloader, inference_loaders_val, ref_images, args.outdir)
+        trainlosses, trainaccs = model.train_model(trainloader, inference_loaders_val, ref_images, args.outdir, scaler=scaler)
 
         with open(os.path.join(args.outdir, "train_losses.txt"), "w") as f:
             for loss in trainlosses:

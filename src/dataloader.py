@@ -42,6 +42,11 @@ def fetch_dataloaders(args):
     label_key = "hgb" if args.dataset == "eyes-defy-anemia" else "tsb"
     train_labels = train_data[label_key].values
 
+    if args.task == "reg":
+        scaler = StandardScaler()
+        train_labels = scaler.fit_transform(train_labels.reshape(-1, 1)).flatten()
+    else:
+        scaler = None
 
     # in both datasets, for classification, label is 1 if first image is diseased, i.e. has lower Hgb or higher TsB
     # in both datasets, for regression, label values are positive if first image is diseased, i.e. has lower Hgb or higher TsB
@@ -76,7 +81,7 @@ def fetch_dataloaders(args):
     
     trainloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
-    return trainloader, inference_loaders_val, inference_loaders_test, ref_images, train_images, val_images, test_images
+    return trainloader, inference_loaders_val, inference_loaders_test, ref_images, train_images, val_images, test_images, scaler
 
 
 def get_split_data(args):
