@@ -24,6 +24,8 @@ from torchvision.models import (
 )
 from torchvision import transforms
 from tqdm import tqdm
+from transformers import ViTModel, ViTConfig
+
 
 
 class taco(nn.Module):
@@ -66,22 +68,24 @@ class taco(nn.Module):
                 else resnet152(weights=None)
             )
             num_ftrs = self.model.fc.in_features
-        elif arch == "vit_b_16":
-            self.model = (
-                vit_b_16(weights=ViT_B_16_Weights.DEFAULT)
-                if args.pretrained
-                else vit_b_16(weights=None)
-            )
-            num_ftrs = self.model.heads.head.in_features
-        elif arch == "vit_b_32":
-            self.model = (
-                vit_b_32(weights=ViT_B_32_Weights.DEFAULT)
-                if args.pretrained
-                else vit_b_32(weights=None)
-            )
-            num_ftrs = self.model.heads.head.in_features
+        elif args.arch == "vit_b_16":
+            # load ViT base 16
+            model_name = "google/vit-base-patch16-224"
+        elif args.arch == "vit_b_32":
+            # load ViT base 32
+            model_name = "google/vit-base-patch32-224"
+        
+        if args.arch in ["vit_b_16", "vit_b_32"]:
+            if args.pretrained:
+                self.model = ViTModel.from_pretrained(model_name)
+                num_ftrs = self.model.config.hidden_size
+            else:
+                config = ViTConfig.from_pretrained(model_name)
+                self.model = ViTModel(config)
+                num_ftrs = config.hidden_size            
+        else:
+            self.model.fc = nn.Identity()
 
-        self.model.fc = nn.Identity()
         if self.args.projector:
             self.projector = nn.Sequential(
                 nn.Linear(num_ftrs, num_ftrs * 2),
@@ -119,8 +123,12 @@ class taco(nn.Module):
         logging.info(f"#-trainable-params: {self.get_trainable_params()}")
 
     def forward(self, x1, x2):
-        x1 = self.model(x1)        
-        x2 = self.model(x2)
+        if self.args.arch in ["vit_b_16", "vit_b_32"]:
+            x1 = self.model(pixel_values = x1).last_hidden_state[:,0,:]        
+            x2 = self.model(pixel_values = x2).last_hidden_state[:,0,:]
+        else:
+            x1 = self.model(x1)        
+            x2 = self.model(x2)
 
         if self.args.projector:
             x1 = self.projector(x1)
@@ -212,7 +220,7 @@ class taco(nn.Module):
                         torch.save(self.state_dict(), os.path.join(outdir, "best_model.pth"))
                         best_f1 = metrics["f1"]
                         best_acc_epoch = epoch
-                    elif "reg" in self.args.task and metrics["mae"] >= best_f1:
+                    elif "reg" in self.args.task and metrics["mae"] <= best_f1:
                         logging.info("saving best model..................")
                         torch.save(self.state_dict(), os.path.join(outdir, "best_model.pth"))
                         best_f1 = metrics["mae"]
